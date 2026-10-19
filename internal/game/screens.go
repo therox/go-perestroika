@@ -359,21 +359,21 @@ func (g *Game) gameOver() bool {
 			if key, done = wait(300); done {
 				break
 			}
-			g.playSample(g.data.Sounds[dat.SndQuestion])
+			g.playSample(g.data.Sounds[dat.SndChaCha])
 		}
 		frame++
 		if frame > 2 {
 			frame = 0
 			if blink == 0 {
 				blink = 2
+				// Оригинал показывал вопрос только на время этой паузы и сразу
+				// стирал его, так что большую часть времени не было видно, что
+				// нажимать. Здесь вопрос, появившись, остаётся на экране.
 				g.scr.CopyRect(x1+28, my/2+50, x2-40, my/2+70, 1, x1+28, my/2+50, 0)
 				g.work(0)
 				if key, done = wait(2000); done {
 					break
 				}
-				g.scr.SetActivePage(0)
-				g.scr.Bar(x1+8, my/2+50, x2-40, my/2+70)
-				g.scr.SetActivePage(1)
 			} else {
 				blink--
 			}

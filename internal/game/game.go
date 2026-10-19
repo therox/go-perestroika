@@ -314,10 +314,10 @@ func (g *Game) flushKeys() {
 }
 
 // pollKey — F_4cd8: клавиша без ожидания; расширенные коды как 0x100+скан.
-// bioskey() в Turbo C при каждом вызове трижды обращался к DOS (перехват
-// Ctrl-Break) и один раз к BIOS, поэтому опрос дорогой.
+// bioskey() в Turbo C при каждом вызове трижды обращался к DOS (функции
+// 25h/35h — перехват Ctrl-Break) и один раз к BIOS: около 400 инструкций.
 func (g *Game) pollKey() int {
-	g.work(1200)
+	g.work(400)
 	k, ok := g.in.ReadKey()
 	if !ok {
 		return 0

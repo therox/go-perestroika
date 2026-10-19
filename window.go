@@ -88,14 +88,15 @@ type app struct {
 }
 
 func runWindow(data *dat.Data, dataErr error, store *host.HiScoreFile, speed, volume float64, fullscreen bool, capture string) error {
-	mixer := sfx.NewMixer(0.08)
+	const audioBuffer = 25 * time.Millisecond
+	mixer := sfx.NewMixer(0.005, audioBuffer.Seconds())
 	mixer.SetVolume(volume)
 	actx := audio.NewContext(sfx.Rate)
 	player, err := actx.NewPlayerF32(mixer)
 	if err != nil {
 		return err
 	}
-	player.SetBufferSize(40 * time.Millisecond)
+	player.SetBufferSize(audioBuffer)
 	player.Play()
 
 	a := &app{

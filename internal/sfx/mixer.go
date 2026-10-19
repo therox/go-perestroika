@@ -32,12 +32,14 @@ type voice struct {
 
 // Mixer — источник аудиопотока (float32, стерео) для Ebiten.
 type Mixer struct {
-	mu      sync.Mutex
-	pos     int64
-	latency int64
-	volume  float32
+	mu     sync.Mutex
+	pos    int64 // сколько отсчётов уже отдано аудиопотоку
+	margin int64 // запас перед позицией потока для новых событий
+	slack  int64 // насколько события могут опережать позицию потока
+	volume float32
 
 	shift   int64 // поправка между временем игры и позицией аудиопотока
+	synced  bool  // поправка уже выставлялась
 	offline bool  // рендер без реального вывода (время игры = время звука)
 
 	tones []toneEvent
@@ -49,13 +51,21 @@ type Mixer struct {
 	lp, hpIn, hpOut float32
 }
 
-// NewMixer создаёт микшер с задержкой планирования latency секунд.
-func NewMixer(latency float64) *Mixer {
-	return &Mixer{latency: int64(latency * Rate), volume: 0.35}
+// NewMixer создаёт микшер для вывода в реальном времени. Звук, начатый
+// в момент «сейчас», ставится сразу за уже отданной аудиопотоку частью
+// (с запасом margin секунд), поэтому отстаёт от картинки только на размер
+// буфера воспроизведения. bufferSize — размер буфера плеера в секундах:
+// между его чтениями время игры уходит вперёд на эту величину.
+func NewMixer(margin, bufferSize float64) *Mixer {
+	return &Mixer{
+		margin: int64(margin * Rate),
+		slack:  int64((margin + bufferSize*1.5) * Rate),
+		volume: 0.35,
+	}
 }
 
 func (m *Mixer) frame(t float64) int64 {
-	return int64(t*Rate) + m.latency + m.shift
+	return int64(t*Rate) + m.shift
 }
 
 // NewOfflineMixer создаёт микшер для рендера в файл: время игры совпадает
@@ -64,8 +74,10 @@ func NewOfflineMixer() *Mixer {
 	return &Mixer{volume: 0.35, offline: true}
 }
 
-// Sync выравнивает время игры t с позицией аудиопотока: если поток
-// останавливался (окно свёрнуто) или отстал, события не копятся с задержкой.
+// Sync привязывает время игры t к позиции аудиопотока. Пока соответствие
+// держится в допустимых пределах, оно не меняется (так сохраняются
+// интервалы между звуками); если поток ушёл вперёд или отстал (например,
+// окно было свёрнуто), «сейчас» снова ставится сразу за позицией потока.
 func (m *Mixer) Sync(t float64) {
 	if m.offline {
 		return
@@ -73,9 +85,9 @@ func (m *Mixer) Sync(t float64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	target := m.frame(t)
-	want := m.pos + m.latency
-	if target < m.pos || target > want+m.latency*3 {
-		m.shift += want - target
+	if !m.synced || target < m.pos || target > m.pos+m.slack {
+		m.shift += m.pos + m.margin - target
+		m.synced = true
 	}
 }
 

@@ -52,8 +52,6 @@ var specialKeys = map[ebiten.Key]string{
 	ebiten.KeyF2:          "f2",
 	ebiten.KeyF3:          "f3",
 	ebiten.KeyF4:          "f4",
-	ebiten.KeyF5:          "f5",
-	ebiten.KeyF6:          "f6",
 }
 
 // Стрелки дополнительной клавиатуры (при выключенном NumLock на PC
@@ -81,13 +79,31 @@ type app struct {
 	runes []rune
 	speed float64
 
+	// показ кадров с задержкой, чтобы картинка совпадала с запаздывающим
+	// звуком (Bluetooth-наушники и колонки)
+	settings host.Settings
+	history  []timedFrame
+	spare    []*gfx.Frame
+
 	// отладка: сохранить кадр окна через captureAt кадров и выйти
 	capturePath string
 	captureAt   int
 	frames      int
 }
 
-func runWindow(data *dat.Data, dataErr error, store *host.HiScoreFile, speed, volume float64, fullscreen bool, capture string) error {
+// timedFrame — снимок экрана и момент, когда он был снят.
+type timedFrame struct {
+	at    time.Time
+	frame *gfx.Frame
+}
+
+// Пределы и шаг компенсации задержки звука.
+const (
+	maxAudioDelayMs  = 800
+	audioDelayStepMs = 20
+)
+
+func runWindow(data *dat.Data, dataErr error, store *host.HiScoreFile, speed, volume float64, fullscreen bool, capture string, audioDelayMs int) error {
 	const audioBuffer = 25 * time.Millisecond
 	mixer := sfx.NewMixer(0.005, audioBuffer.Seconds())
 	mixer.SetVolume(volume)
@@ -109,9 +125,15 @@ func runWindow(data *dat.Data, dataErr error, store *host.HiScoreFile, speed, vo
 		pix:   make([]byte, gfx.W*gfx.H*4),
 		speed: speed,
 
+		settings: host.LoadSettings(),
+
 		capturePath: capture,
 		captureAt:   180,
 	}
+	if audioDelayMs >= 0 {
+		a.settings.AudioDelayMs = audioDelayMs
+	}
+	a.settings.AudioDelayMs = min(max(a.settings.AudioDelayMs, 0), maxAudioDelayMs)
 	if data != nil {
 		a.start(data)
 	} else {
@@ -231,10 +253,14 @@ func cp866(s string) []byte {
 }
 
 func (a *app) title() string {
-	if math.Abs(a.speed-1) < 1e-9 {
-		return windowTitle
+	t := windowTitle
+	if math.Abs(a.speed-1) > 1e-9 {
+		t += fmt.Sprintf(" — скорость ×%.2g", a.speed)
 	}
-	return fmt.Sprintf("%s — скорость ×%.2g", windowTitle, a.speed)
+	if a.settings.AudioDelayMs > 0 {
+		t += fmt.Sprintf(" — задержка звука %d мс", a.settings.AudioDelayMs)
+	}
+	return t
 }
 
 func (a *app) press(name string) {
@@ -275,6 +301,16 @@ func (a *app) Update() error {
 		ebiten.SetWindowTitle(a.title())
 	}
 
+	if inpututil.IsKeyJustPressed(ebiten.KeyF5) || inpututil.IsKeyJustPressed(ebiten.KeyF6) {
+		step := audioDelayStepMs
+		if inpututil.IsKeyJustPressed(ebiten.KeyF5) {
+			step = -step
+		}
+		a.settings.AudioDelayMs = min(max(a.settings.AudioDelayMs+step, 0), maxAudioDelayMs)
+		_ = host.SaveSettings(a.settings)
+		ebiten.SetWindowTitle(a.title())
+	}
+
 	// служебные клавиши с автоповтором
 	for k, name := range specialKeys {
 		if k == ebiten.KeyEnter && alt {
@@ -307,8 +343,34 @@ func repeatPressed(k ebiten.Key) bool {
 	return d == 1 || (d > repeatDelay && (d-repeatDelay)%repeatEvery == 0)
 }
 
+// delayedFrame снимает текущий кадр и возвращает тот, что был на экране
+// AudioDelayMs миллисекунд назад.
+func (a *app) delayedFrame() *gfx.Frame {
+	now := time.Now()
+	var f *gfx.Frame
+	if n := len(a.spare); n > 0 {
+		f, a.spare = a.spare[n-1], a.spare[:n-1]
+	} else {
+		f = gfx.NewFrame()
+	}
+	a.scr.Capture(f)
+	a.history = append(a.history, timedFrame{now, f})
+
+	cutoff := now.Add(-time.Duration(a.settings.AudioDelayMs) * time.Millisecond)
+	// самый свежий кадр не позже cutoff; более старые больше не понадобятся
+	k := 0
+	for k+1 < len(a.history) && !a.history[k+1].at.After(cutoff) {
+		k++
+	}
+	for _, old := range a.history[:k] {
+		a.spare = append(a.spare, old.frame)
+	}
+	a.history = append(a.history[:0], a.history[k:]...)
+	return a.history[0].frame
+}
+
 func (a *app) Draw(screen *ebiten.Image) {
-	a.scr.RenderRGBA(a.pix)
+	a.delayedFrame().RGBA(a.pix)
 	a.frame.WritePixels(a.pix)
 
 	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()

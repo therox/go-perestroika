@@ -538,19 +538,33 @@ func EGAColor(c byte) color.RGBA {
 	}
 }
 
-// RenderRGBA переводит видимую страницу 0 в RGBA (буфер W*H*4).
-func (s *Screen) RenderRGBA(dst []byte) {
+// Frame — снимок видимой страницы: индексы цветов и палитра.
+type Frame struct {
+	Pix []byte
+	Pal [16]byte
+}
+
+// NewFrame создаёт пустой кадр.
+func NewFrame() *Frame { return &Frame{Pix: make([]byte, W*H)} }
+
+// Capture копирует видимую страницу 0 и палитру в кадр f.
+func (s *Screen) Capture(f *Frame) {
 	s.mu.Lock()
+	copy(f.Pix, s.pages[0])
+	f.Pal = s.pal
+	s.mu.Unlock()
+}
+
+// RGBA переводит кадр в RGBA (буфер W*H*4).
+func (f *Frame) RGBA(dst []byte) {
 	var lut [16][4]byte
-	for i, c := range s.pal {
+	for i, c := range f.Pal {
 		rgb := EGAColor(c)
 		lut[i] = [4]byte{rgb.R, rgb.G, rgb.B, 0xFF}
 	}
-	pg := s.pages[0]
-	for i, ci := range pg {
+	for i, ci := range f.Pix {
 		copy(dst[i*4:i*4+4], lut[ci&15][:])
 	}
-	s.mu.Unlock()
 }
 
 // Snapshot возвращает изображение указанной страницы (для отладки и тестов).

@@ -19,6 +19,7 @@ func main() {
 	speed := flag.Float64("speed", 1, "скорость игры (больше — быстрее)")
 	fullscreen := flag.Bool("fullscreen", false, "полноэкранный режим")
 	volume := flag.Float64("volume", 0.7, "громкость 0..1")
+	audioDelay := flag.Int("audio-delay", -1, "задержка картинки под звук, мс (для Bluetooth-наушников; по умолчанию — сохранённая)")
 	scoresPath := flag.String("scores", host.DefaultHiScorePath(), "файл таблицы рекордов")
 	script := flag.String("script", "", "автономный прогон по сценарию (для отладки)")
 	outDir := flag.String("out", ".", "каталог для снимков автономного прогона")
@@ -43,7 +44,7 @@ func main() {
 		return
 	}
 	// без файла данных окно всё равно открывается: в нём объясняется, где его взять
-	if err := runWindow(data, err, store, *speed, *volume, *fullscreen, *capture); err != nil {
+	if err := runWindow(data, err, store, *speed, *volume, *fullscreen, *capture, *audioDelay); err != nil {
 		fail(err)
 	}
 }

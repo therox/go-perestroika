@@ -1,0 +1,7 @@
+/perestroika
+/perestroika.exe
+/dist/
+
+# файлы оригинальной игры в проект не входят
+/Source/
+[Tt][Oo][Pp][Pp][Ll][Ee][Rr].[Dd][Aa][Tt]
